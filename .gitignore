@@ -1,0 +1,6 @@
+.DS_Store
+.git
+moveData/conf
+moveData/data
+moveData/logs
+moveData/schemas
