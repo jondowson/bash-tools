@@ -2,5 +2,8 @@
 *
 # But not these files...
 !.gitignore
-!.README.md
+!README.md
 !tool_*
+!analysis
+!cloud
+!moveData

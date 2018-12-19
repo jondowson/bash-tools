@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 scriptName="tool_harvestMetrics";
-version="1.2.1";
+version="1.3.1";
 
 ## author:  jondowson@datastax.com
 ## about:   run nodetool + dsetool commands and collect output in a pre-defined folder structure.
@@ -201,6 +201,10 @@ fi;
 };
 
 # ========================================================== SCRIPT SETUP 1/2
+# discover script path
+scriptPath=$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd -P );
+
+# ***********************
 # display formatting
 cyan=`tput setaf 6`;
 yellow=`tput setaf 3`;
@@ -220,25 +224,33 @@ declare -a arrayPidSuccess;
 declare -a arrayPidFail;
 declare -A arrayPidDetails;
 
+# ***********************
+# make folder to hold stats from all servers
+mkdir -p ${scriptPath}/statsByIp;
+
 # ==========================================================  USER DEFINED SETTINGS
 # [1] how many times to collect stats and whether to delete on remote server once retrieved?
 #     - set to 1 to collect stats only once.
 #     - more than once will put stats in a time stamped sub-folder.
-#     - if more than once - set interval time between collections. set a reasonable minimum ~ 30s!
-repeatTimes="3";
-intervalSeconds="30";
+#     - if more than once - set interval time between collections. set a reasonable minimum ~ 10s!
+repeatTimes="2";
+intervalSeconds="10";
 cleanRemoteFolders="true";
 
 # ***********************
-# [2] does nodetool and dsetool require authentication?
-#     - set user and password if required.
-#     - if not required leave as empty strings or comment out.
-#     - for any given cluster, these should be the same on each node.
-#userCassandra="cassandra";
-#passwordCassandra="cassandra";
+# [2] where on servers to create collection folders?
+#     - same path will be used for all servers!
+targetFolder="~/Desktop/";
 
 # ***********************
-# [3] location of config + log files to grab?
+# [3] which servers and ssh user to perform stat collection on?
+#     - supply at least one ip address and ssh user.
+#     - prior to running enable passwordless authentication with ssh-copy-id utility!
+array_serverIp["127.0.0.1"]="jondowson";
+#array_serverIp[127.0.0.2]="jonsmith";
+
+# ***********************
+# [4] location of config + log files to grab?
 #     - these paths need to be the same on each server to work!
 #     - include name of file at end of path + fill all in!
 systemLogPath="/Users/jondowson/Desktop/bash-blocks/installed-blocks/dse/logs/dse-6.0.2_burberry/cassandra/system.log";
@@ -254,23 +266,19 @@ arrayCopyPaths["${dseYamlPath}"]="conf/cassandra";
 arrayCopyPaths["${cassandraEnvPath}"]="conf/dse";
 
 # ***********************
-# [3] which account and where on servers to create collection folders?
-#     - same user and path will be used for all servers!
-targetFolder="~/Desktop";
-
-# ***********************
-# [4] which servers and ssh user to perform stat collection on?
-#     - supply at least one ip address and ssh user.
-#     - prior to running enable passwordless authentication with ssh-copy-id utility!
-array_serverIp["127.0.0.1"]="jondowson";
-#array_serverIp[127.0.0.2]="jonsmith";
-
-# ***********************
 # [5] optionally - do you want to gather tablestats on given keyspace.table?
 #     - if not required comment out this section.
 #     - if not empty tablestats will be gathered and put into its own subfolder.
 array_keyspaceDotTable[0]="system.local";
 #array_keyspaceDotTable[1]="keyspace1.table2";
+
+# ***********************
+# [6] does nodetool and dsetool require authentication?
+#     - set user and password if required.
+#     - if not required comment out.
+#     - for any given cluster, these should be the same on each node.
+#userCassandra="cassandra";
+#passwordCassandra="cassandra";
 
 # ========================================================== SCRIPT SETUP 2/2
 # calculate length of user defined arrays
@@ -288,7 +296,7 @@ else
 fi;
 
 # ========================================================== SCRIPT RUN
-# display title
+# [1] display title
 clear;
 printf "%s\n" "*******************************************************************";
 printf "%s\n" "${b}${scriptName} - version: ${yellow}${version}${reset}";
@@ -297,25 +305,27 @@ printf "%s\n" "${b}${yellow}interval:   ${cyan}${intervalSeconds} sec${reset}";
 printf "%s\n" "*******************************************************************";
 
 # ***********************
-# repeat stat collection the defined x number of times with the defined interval
+# [2] repeat stat collection the defined x number of times with the defined interval
 display "TASK==>" "TASK: collect nodetool + dsetool stats on each server" "" "1" "0" "2";
 for run in $(seq 1 ${repeatTimes});
 do
   # loop through server array and execute the functions
   for serverIp in "${!array_serverIp[@]}"
   do
-    serverIp="${serverIp}";
-    userSsh="${array_serverIp[$serverIp]}";
-    if [ "${repeatTimes}" -gt "1" ]; then
+    if [ "${repeatTimes}" -gt "1" ];then
       date=$(date '+%Y-%m-%d %H:%M:%S');
       date=$(echo ${date// /_});
       dateFolder="${date}/";
+      dateFolderMsg="/${date}/";
     fi;
+    serverIp="${serverIp}";
+    folderMsg="${yellow}${serverIp}${dateFolderMsg}${reset}";
+    userSsh="${array_serverIp[$serverIp]}";
     nodetoolWriteFolder="${targetFolder}/${serverIp}/${dateFolder}nodetool/";
     dsetoolWriteFolder="${targetFolder}/${serverIp}/${dateFolder}dsetool/";
     miscWriteFolder="${targetFolder}/${serverIp}/${dateFolder}";
     printf "%s\n" "${b}--> on server: ${yellow}${serverIp}${reset}";
-    printf "%s\n"   "--> ${yellow}creating:${reset}  folder structure";
+    printf "%s\n"   "--> ${yellow}creating:${reset}  folder structure (under folder ${folderMsg})";
     printf "%s\n"   "--> ${yellow}nodetool:${reset}  proxyhistograms, tpstats, gcstats and info";
     printf "%s\n"   "--> ${yellow}dsetool:${reset}   node_health and ring";
     printf "%s\n"   "--> ${yellow}cqlsh:${reset}     describe schema";
@@ -365,7 +375,7 @@ do
 done;
 
 # ***********************
-# loop through server array and retrieve stats folder from each server
+# [3] loop through server array and retrieve stats folder from each server
 printf "%s\n" "*******************************************************************";
 display "TASK==>" "TASK: retrieve stats from each server" "" "1" "1" "2";
 for serverIp in "${!array_serverIp[@]}"
@@ -373,7 +383,7 @@ do
   serverIp="${serverIp}";
   userSsh="${array_serverIp[$serverIp]}";
   printf "%s\n" "${b}--> on server: ${yellow}${serverIp}${reset}";
-  scp -r -q -o LogLevel=QUIET ${userSsh}@${serverIp}:${targetFolder}/${serverIp} . &
+  scp -r -q -o LogLevel=QUIET ${userSsh}@${serverIp}:${targetFolder}/${serverIp} ${scriptPath}/statsByIp/ &
   pid=${!};
   printf "%s\n" "--> ${cyan}$pid${reset}";
   details="retrieving stats from ${serverIp} with pid ${cyan}$pid${reset}";
@@ -385,7 +395,7 @@ waitForPids;
 pidReport;
 
 # ***********************
-# remove remote stats folders
+# [4] remove remote stats folders
 if [ "${cleanRemoteFolders}" == "true" ]; then
   printf "%s\n" "*******************************************************************";
   display "TASK==>" "TASK: remove stats from each remote server" "" "1" "1" "2";
@@ -407,6 +417,8 @@ if [ "${cleanRemoteFolders}" == "true" ]; then
   waitForPids;
   pidReport;
 fi;
+
+# ***********************
 printf "\n%s\n" "*******************************************************************";
 printf "%s\n"   "${b}--> finished${reset}";
 printf "%s\n" "*******************************************************************";
